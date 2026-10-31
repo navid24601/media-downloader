@@ -6,5 +6,5 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-echo Setup complete. Double-click Launch.cmd to open Instagram Local.
+echo Setup complete. Double-click Launch.cmd to open Instagram and YouTube Local.
 pause

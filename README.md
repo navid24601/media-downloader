@@ -1,126 +1,178 @@
-# Instagram Local for Windows
+# Instagram & YouTube Local for Windows
 
-A personal Instagram downloader with a Python backend and a compact, English, dark browser interface. It binds only to `127.0.0.1`. No paid API, remote backend, downloader service, hosting, or cloud deployment is involved.
+A personal downloader and offline library for one Windows user. It runs only on `127.0.0.1`, with an English, dark interface. Downloads, history and session storage are local; there is no hosted backend or third-party downloader service.
 
-## Version 2: offline Library
+**Read this first:** individual downloads and the offline Library are implemented. Large YouTube playlists have a known first-50-entry bug; see [status and roadmap](#status-and-roadmap). Source support does not guarantee that Instagram or YouTube will allow a particular account or video.
 
-**Downloader remains the opening tab.** The new **Library** tab shows a responsive grid of local downloads, with no home feed. Switching tabs keeps the downloader's unsaved fields and file selection in place and does not pause or restart its worker. A previously running download queue continues independently while you browse.
+[Start](#start-and-stop) · [Download](#download-media) · [Library](#use-the-offline-library) · [Sessions](#sessions-and-connection) · [Files](#files-and-recovery) · [Design](#design-guide-and-logbook) · [Roadmap](#status-and-roadmap)
 
-The Library works without Internet access or a valid Instagram session. Searching, filtering, favoriting, hiding/restoring, thumbnails, and media playback use this local server and local files only. Keep the app's server running; this is not a remotely hosted or browser-cached site. All image/video/script/style sources are local. The original Instagram link opens an external page only if you choose to click it.
+## Start and stop
 
-- **Grid:** newest downloaded first, up to 48 entries per page, with lazy thumbnail loading. Search literal text from the download date (`YYYY-MM-DD`), canonical post link/shortcode, or output filename. Account filters use only known usernames. Favorites and known source/collection labels have separate filters. Use Refresh to include newly indexed/downloaded posts.
-- **Viewer:** select a tile for an image/video viewer, caption and known metadata. A numbered carousel slider reads ZIP members in numeric order. Left/right arrows move between media, up/down move between posts; native video and slider controls retain their own keyboard behavior. Previous/next post buttons also cross page boundaries. Back to grid or Escape returns to the grid and its scroll position. Videos use standard browser controls, without auto-playing.
-- **Favorites:** stored only in the local database. They do not change Instagram Saved posts. **Hide from library** keeps media, history, and duplicate detection; enable **Hidden items**, open the entry, then **Restore to library** to show it again.
-- **Delete local file…:** a separate confirmation lists the exact recorded output and recorded caption sidecar, including their full paths. Only those files and that entry's thumbnails are removed. This deletion is permanent, not a Recycle Bin action. It leaves download history intact and marks the Library entry deleted. Missing output then permits a future download through normal duplicate handling. Unrecorded nearby text files are never included in deletion.
-- **Fetch missing details…:** appears only when a caption or account name is missing and a reliable post identity is available. Its confirmation clearly identifies it as an online action that may use your imported session. It adds one metadata-only task to the existing Downloader queue; no media is downloaded again. Resume in Downloader if paused; an already running queue can process it in the current batch. It follows the same pacing, retry limits, and account-restriction pauses. It never runs when opening, searching, filtering, or viewing the Library. Refresh after the task finishes to see its results. Saved timestamps, collection membership, and profile details are not fetched or invented.
+Requires Windows 11, Python 3.11+, Node.js 22+ on PATH, and a browser such as Chrome. Setup installs pinned dependencies and bundled FFmpeg in `.venv`.
 
-### Safe migration of existing downloads
+1. Double-click **[Setup.cmd](Setup.cmd)** for first installation, dependency updates, or after moving the project. Python environments are not portable.
+2. Double-click **[Launch.cmd](Launch.cmd)**. Keep its console open; the browser opens when the server is ready.
+3. In **Connection & settings**, save an absolute local download folder. The default is the project's `Downloads` folder. Set up your VPN/TUN or proxy as needed.
+4. Add downloads, then choose **Resume · next 50**. The app always opens on **Downloader**, with network work paused after a restart.
 
-On startup, version 2 adds `library_*` SQLite tables without replacing version 1 tables. A background, database-only migration registers completed paths from `downloads`, plus older completed output paths still recorded in queue history. This includes different user-selected download folders. It does not scan arbitrary folders, move files, change sessions/settings, resume the network queue, or download anything. Batches and import markers commit transactionally; restarting safely continues unfinished migration. Local file inspection follows incrementally, and thumbnails are generated on demand for visible entries.
+Launch reopens the existing instance, trying ports 8765–8795 if needed. Use it rather than a bare localhost URL: it supplies interface authorization.
 
-Older records have limited metadata. A username and local date can be established from a matching version 1 filename. If there is no matching filename date but a timezone-aware timestamp exists in the record, the date is displayed in the machine's current local timezone. Canonical links derive from recorded shortcodes. Existing `.txt` sidecars and `caption.txt` in ZIPs supply captions where available. Unknown values are explicitly shown as unknown; no saved dates, collection names, or account profile data are inferred. Source labels for old rows remain unknown unless they were recorded. Each recorded output is a separate Library entry, so explicit repeat downloads may appear separately.
+**Controls:** Pause finishes the current item/request; Resume continues; Cancel remaining keeps completed files; Retry failed requeues failures and waits for Resume. Processing pauses after 50 items, including duplicate skips; source scans can also pause. Counts cover discovered work, not an assumed total.
 
-Future download completion saves shortcode, username, caption, canonical link, download time/date, media count/types, output path, and known input source/collection label in the same SQLite transaction as success. **Caption metadata is saved even when caption text-file output is disabled.** Signed CDN URLs/manifests and session material are not included. A Library details-fetch task updates missing metadata only and never marks a media download complete.
+Closing the browser does not stop the worker. Pause and wait, then **Shut down** or Ctrl+C for a clean stop. When updating, stop the old server first and preserve `.local` and media folders.
 
-Missing/moved outputs stay visible with a missing status and recorded path. Restore the file to that path and Refresh, or download the post again. Damaged/unsupported ZIPs and incomplete numbering have visible errors; staging paths under `.incomplete` are never playable Library posts. Original files are not damaged by inspection or preview failure. Header and ZIP structure checks are lightweight; a damaged body or unsupported browser codec can still fail at playback, which is reported in the viewer. Full stored-ZIP reads also check the member CRC. Compressed ZIP seeking is supported but can be slower because decompression must pass earlier bytes; version 1's default uncompressed ZIPs use direct byte slices for video seeking. No extracted carousel folders are left behind.
+## Download media
 
-### Local previews and media access
+### Links and file imports
 
-The already bundled FFmpeg creates small JPEG previews, including videos and the first media item in a carousel. Its remote protocols are disabled. ZIP previews stream from the member without creating an extracted media directory; some non-seekable MP4 layouts may fail to preview and show **No preview** while the original can still play normally. Cache files live in `.local/thumbnails`, with a 128 MiB / 1,000-file budget, whichever is reached first, and oldest-accessed entries pruned. A single in-progress preview can temporarily add a file; stale partial previews are cleaned. Previews invalidate when source size, modification time, or file identity changes. Failed previews are cached as placeholders until the source changes or that cached failure marker is removed with the server stopped.
+Paste one link per line, mixing Instagram and YouTube if needed, or import UTF-8 TXT/CSV. Limits: 4 MB per file and 20,000 links per request. CSV selects an unambiguous link column or asks you to choose one. Blank lines and repeated identities are ignored; malformed links are reported individually.
 
-Images, videos, and ZIP members are streamed through authenticated routes using Library IDs and media positions, never client-supplied paths. Video routes support single HTTP byte ranges and HEAD. An authenticated local action establishes a per-run, HttpOnly, SameSite=Strict media cookie; media requests additionally require the exact loopback Host and same-origin browser request metadata. Cross-origin pages cannot read them. CSP permits only local images/media. Symlinks, junctions, non-local paths, traversal entries, and staging paths are refused. These controls retain the local-machine security limitations described below.
+Use canonical Instagram post/Reel links (`/p/`, `/reel/`, `/reels/`, legacy `/tv/`); open share redirects in Instagram first. YouTube accepts video, Shorts and playlist links. For a link containing both video and playlist, explicitly select **This video** or **This playlist**.
 
-## Start
+Instagram selects the highest exposed image/video quality, which may differ from the original upload. There are no artificial lower-quality options.
 
-**Upgrading from version 1:** if its server is running, use **Shut down** first, then run **Launch.cmd**. Keep `.local`, your existing environment, and all download folders. The Library migration runs automatically; no new packages or fresh account setup are required.
+### Instagram profiles and Saved
 
-1. Double-click **Setup.cmd** once. It creates `.venv`, installs the exact versions in `requirements.txt`, restricts `.local` to your Windows user and SYSTEM, and runs the local fixture tests. Python 3.11+ is required (developed with Python 3.13 on Windows).
-2. Double-click **Launch.cmd**. Keep the console window open. The browser opens after the local server is ready.
-3. Open **Connection & settings**, choose an absolute download folder, and save it. The default is this project's `Downloads` folder. Settings affect newly queued work; existing items retain their original folder/caption choices.
-4. Add links, import a TXT/CSV file, or queue a profile/Saved source. Choose **Resume · next 50** to begin.
+- **Profile:** username or profile URL; Latest N or All. Timeline and Reels are scanned together. Latest N uses publication times, accounts for pinned posts, and may need several scan batches before downloads begin.
+- **Saved:** requires imported Instagram cookies. Choose All Saved posts or a named collection, then Latest N or All. For a collection, paste its URL, such as `https://www.instagram.com/you/saved/name/123456/`; automatic collection discovery is unavailable.
+- **Ordering:** reliable recently-saved order/timestamps are unavailable. Latest N requires accepting **Latest N in available order**; publication order is never substituted. All needs no ordering acceptance.
 
-After running Setup once in this folder, use `Launch.cmd` for later starts. Run Setup again if the project moves to another folder or computer: Python virtual environments are not portable.
+If Saved/collection access fails, paste individual post links; this does not enumerate Saved. An expired source cursor may require canceling/re-adding it; existing downloads skip.
 
-**Pause** takes effect after the current post or enumeration request. **Cancel remaining** cancels pending work and keeps completed files. A batch pauses after 50 processed posts; review results and Resume for the next batch. Already-downloaded entries also count toward this cautious processing limit. A source scan with 50 already-downloaded entries pauses for review too.
+### YouTube output and audio
 
-Closing the browser leaves the server running. **Shut down** in the interface, or Ctrl+C in its console, closes it. A transfer interrupted by shutdown may remain incomplete. After restarting, the queue is paused and needs manual Resume. Completed media items from an interrupted carousel are reused where possible.
+Choose options **before queuing**; they apply only to new YouTube jobs:
 
-Launching again reopens the existing instance. Port 8765 is preferred; an occupied port causes selection of the next free port through 8795. The app verifies an existing instance before reopening it. Do not open a bare localhost URL manually: Launch supplies a temporary authorization capability, then removes it from the address bar.
-
-## Authentication without an Instagram password
-
-Public links are attempted without cookies. Instagram may still require login for a public post. Private-followed profiles and Saved access require a session permitted to view that content.
-
-1. Connect your VPN/TUN or working proxy, open Instagram in Chrome, and log in normally. Resolve any checkpoint there yourself.
-2. Export **only instagram.com cookies** to a Netscape `cookies.txt` or browser cookie JSON export. Use a locally installed, trusted cookie-export tool you have inspected; exports must include HTTP-only `sessionid`. An ordinary `document.cookie` copy is insufficient because it omits HTTP-only cookies. JSON entries need `domain`, `name`, `value`, and optionally `expirationDate`/`expires`. Netscape exports must retain their seven tab-separated fields and any `#HttpOnly_` prefixes.
-3. In **Connection & settings → Instagram session**, choose the export and select **Import cookies**. The app parses it in memory and saves an encrypted copy. It does not copy the plaintext export into project state.
-4. Choose **Verify Saved access** to request at most the first Saved page, without downloading media. This is a real authenticated check; merely importing cookies is not proof of a valid session.
-5. Remove the plaintext export after importing if you no longer need it. The app cannot remove the original browser export for you. Never paste or send it to a website or into a support message.
-
-You can make a JSON file manually without an extension. In Chrome, open Instagram while signed in, press F12, then select **Application → Storage → Cookies → https://www.instagram.com**. Copy the raw **Value** and **Domain** for `sessionid`, `csrftoken`, and `ds_user_id` if present. Leave **Show URL-decoded** off. In Notepad, save a file such as `instagram-cookies.json` containing a JSON array of entries like `{"domain":".instagram.com","name":"sessionid","value":"PASTE_VALUE_HERE"}`; use each cookie's actual domain and value. Choose **Save as type: All files** so the filename ends in `.json`. Import and verify it as above. This file grants account access: keep it private, never commit it to a repository, and remove it when no longer needed.
-
-Chrome cookie encryption on current Windows builds can prevent automatic browser extraction. This app deliberately does not attempt it or collect a password. If your browser/export tool cannot export HTTP-only Instagram cookies, session import cannot work; use a trusted local exporter that supports them, or continue with public links where Instagram permits anonymous access.
-
-**Clear session** removes this app's imported cookies and resets verification status. It does not log Chrome out. To invalidate a session that may have escaped your control, use Instagram's own login/session controls.
-
-## Download inputs
-
-- **Links:** one full post/Reel URL per line, with either HTTP or HTTPS and optional tracking parameters. URLs normalize to HTTPS and deduplicate by shortcode across all sources. Blank lines are ignored. A bad line does not reject the other lines. `/p/`, `/reel/`, `/reels/`, and legacy `/tv/` post links are accepted. `/share/` redirects, Stories, Highlights, and live/archive links are outside this input format; open a shared post in Instagram and copy its canonical post/Reel URL.
-- **File import:** UTF-8 TXT or CSV, up to 4 MB and 20,000 links per request. Comma, semicolon, and tab-separated CSV are recognized. An unambiguous URL/link column is selected automatically. Multiple link-containing columns require a selection. CSV imports preserve malformed values for individual error reports. Files may contain a header or be a single URL column without a header.
-- **Profile:** username or profile URL, Latest N or All. Both the timeline and Reels tab are scanned incrementally. Latest N combines publication times from the two streams, including relevant pinned posts, and deduplicates identities. It assumes each stream is otherwise recent-first, as returned by the engine; malformed/missing publication data stops enumeration visibly instead of guessing. Large Latest N scans keep candidates in SQLite. A resume after 50 scanned candidates may be needed before the latest list is ready to download.
-- **Saved:** All Saved posts or a named collection, Latest N or All. Authentication is required. To select a collection, open it in Instagram and copy a URL like `https://www.instagram.com/you/saved/name/123456/`. The name is shown in the queue. The engine supports collection contents but has no maintained collection-discovery method; therefore there is no automatic list of collection names. If Instagram does not expose a usable name/ID URL, direct selection of that collection is unavailable. Concrete fallback: copy the individual post/Reel links from that collection and queue them in Links or a TXT file.
-
-### Saved order is explicit
-
-The selected engine does not document a reliable recently-saved ordering contract or per-item saved timestamps. **Latest N in available order** therefore requires an unchecked-by-default acceptance box. Returned order is preserved. The app never sorts Saved by publication date or invents saved timestamps. All items requires no ordering acceptance.
-
-If Instagram blocks the Saved or collection endpoint, direct library access cannot be claimed as working. The error is shown; pasting Saved-post links remains useful but downloads only those linked posts. It does not enumerate the Saved library.
-
-Instagram libraries can change while paused. Cursors plus offsets resume within the last page; edits to the library can shift entries. If a cursor expires or a page changes incompatibly, cancel the source and add it again. Existing successful files will be skipped. This does not guarantee a snapshot of a changing library.
-
-## Files and quality
-
-Base filename: `username-shortcode-YYYY-MM-DD`, where the date is the computer's **local download date**, fixed when the first media attempt is staged. It is not publication time. Windows-reserved characters/names are sanitized. Filename collisions use ` (2)`, ` (3)`, etc.; unrelated output is never intentionally overwritten.
-
-A single image/video becomes its normal media file. A carousel becomes **one ZIP**, with `001.jpg`, `002.mp4`, etc. in carousel order. No duplicate extracted media folder is retained after success. Enable **Save caption and original link** for a small `.txt` alongside single media, or `caption.txt` inside a carousel ZIP.
-
-Images use the largest exposed candidate. Video uses the best usable DASH video plus audio when available, merged by bundled FFmpeg without re-encoding; otherwise it uses the engine's best pre-merged video. There are no artificial quality choices. Available quality may be lower than the original Instagram upload. If the best exposed transfer/merge fails, the post fails visibly instead of silently substituting a thumbnail or lower-quality file.
-
-Downloads are written through temporary files. Incomplete work lives under the selected folder's `.incomplete/<queue-id>/`, with an explicit `INCOMPLETE.txt` marker. It is never a completed download. Completed staged media has an identity, size, and SHA-256 receipt for retry reuse. Successful finalization removes its staging folder. Canceled partials are retained for inspection; with the server stopped, you may delete unwanted `.incomplete` subfolders. Their contents are personal downloaded media, not encrypted session storage.
-
-SQLite records successful shortcodes and output paths. A missing output (or requested caption sidecar) automatically permits re-download. **Download again** overrides completed-history skipping for new work. A post already active in the queue is still deduplicated. Failed posts are not considered complete. **Retry failed** queues failures and failed enumeration sources again, then waits for manual Resume.
-
-## Connection and restrictions
-
-An existing VPN/TUN normally works without app settings. The adapter uses Requests with TLS verification enabled. The app explicitly resolves Python's environment proxies or static Windows Internet Settings (`urllib.request.getproxies`), then supplies that mapping to both extraction and media download. It disables Requests' implicit environment handling to avoid `.netrc` credentials and inconsistent proxy resolution. Python's Windows implementation uses environment settings first, then registry static settings. PAC/WPAD scripts and automatic proxy discovery are not executed. Windows proxy bypass lists are not applied by this explicit mapping; local server requests always bypass proxies.
-
-If needed, enter `http://127.0.0.1:PORT` or `socks5h://127.0.0.1:PORT`. HTTP, HTTPS, SOCKS5 and SOCKS5h are supported. Use SOCKS5h to resolve DNS at the proxy. URL-encode embedded proxy credentials. The explicit address is protected in the DPAPI vault and never echoed back into the interface. **Clear explicit proxy** restores detected system/environment settings or direct VPN/TUN access. **Test connection** checks Instagram reachability; it does not verify login or each CDN path. Pause the queue and let the current post finish before connection/session changes or checks.
-
-The app uses one worker, one post at a time, at least six seconds between extraction requests across posts, and at most three attempts for a transient post failure (5- and 15-second backoffs in addition to request pacing). Enumeration requests also have limited retries. Failed ordinary posts are recorded and the batch continues. Authentication, checkpoint/challenge, access restrictions, and rate limits pause work immediately. Retry-After is respected where supplied and blocks early Resume. Without server guidance, the app leaves the wait to your judgment and Instagram's instructions; it never automatically resumes a restriction. It does not rotate accounts, solve challenges, or promise protection against restrictions.
-
-## Local security
-
-Cookies/proxy credentials are encrypted using current-user Windows DPAPI. `.local` inherits no broad folder permissions; access is granted to the current Windows SID and SYSTEM. SQLite contains local history, usernames, links with tracking parameters stripped, queue settings, and paths, but no cookies, signed CDN links, or FB tokens. Engine disk caches and library diagnostics are disabled. There is no operational log file or remote telemetry; the console prints only fixed startup/shutdown guidance.
-
-The server binds only to IPv4 loopback, validates Host and Origin, requires a random per-run capability on every API action, rejects cross-origin preflight, and applies a restrictive content security policy. The capability travels once in a URL fragment and then stays in tab session storage. Runtime discovery is DPAPI-encrypted and existing-server verification uses a nonce/HMAC. Downloads and captions are local plaintext files. Your account, Chrome extensions, malware running as your Windows user, an administrator, and an unlocked computer remain outside these protections. Treat cookie exports and your Windows login as sensitive; account compromise cannot be ruled out. Keep this project in a private, non-synced folder if local history/media must not be synced by a separate backup/sync tool.
-
-## Troubleshooting
-
-| Problem | Action |
+| Choice | Behavior |
 | --- | --- |
-| Setup cannot install packages | Check Python 3.11+, your connection to PyPI, and antivirus restrictions. Re-run Setup. No administrator installation is required. |
-| Startup fails | Re-run Setup from a writable local folder. Windows DPAPI, `whoami`, and `icacls` must work for the same signed-in Windows account. Don't run the launcher as a different user. |
-| Unauthorized local action | Reopen using Launch.cmd; a copied bare URL lacks the per-run capability. |
-| Connection fails | Verify Instagram in Chrome through your VPN; try an explicit local proxy port. Browser-only proxy extensions do not configure Python. Don't disable TLS verification. |
-| Session expired or challenge | Pause, resolve it in Instagram in Chrome, import fresh cookies, then Resume. Never repeatedly retry the restricted endpoint. |
-| Media/ZIP failed | Check free space and output-folder permissions. Retry failed reuses completed staged items. A failed ZIP is never shown as complete. |
-| Unexpected Instagram format / stale cursor | Stop that source. Verify Instagram access in Chrome. An engine update may be needed. If only the cursor is stale, cancel and add the source again. |
-| Source scans but no posts appear yet | Latest N profile selection is collecting timeline/Reels candidates in SQLite. Resume the next cautious scan batch if prompted. |
-| App says it is already starting | Wait briefly and launch again. If the console is gone, a new launch can recover once Windows releases the old process's file lock. Do not delete a lock to force parallel instances. |
+| MP4 video | Best usable quality, or a ceiling of 1080p, 720p, 480p or 360p. Uses the best available lower resolution; fails if none fits. Library shows actual resolution. |
+| MP3 audio | Converts the selected audio locally. Conversion is lossy; the video ceiling is ignored. |
+| Subtitles / thumbnail | Optional files, off by default. Requests available English VTT subtitles, not automatic captions. |
+| Start / end | Optional individual-video/Short segment. Enter both as seconds or `HH:MM:SS`, optionally with milliseconds; start must precede end, within the known duration and 24-hour input limit. Playlists reject ranges. |
 
-## Verification and maintenance
+**Audio identity comes before bitrate.** Both modes prefer the identified original, whatever its language, over dubbed or dynamic-range-compressed alternatives. Ambiguous multilingual audio or an unusable original fails instead of substituting a dub. Older/single-language sources can download without an original marker; Library shows the uncertainty.
 
-Run repeatable local checks without Instagram access:
+MP4 uses H.264/AV1 video and AAC audio without video re-encoding; HLS-only, DRM and incompatible formats are refused. MP4 segments follow nearby keyframes, possibly extending beyond the range; MP3 cuts happen during conversion. Segments may require a full source download. Subtitles retain full-video timing.
+
+Playlist membership/positions are separate from media, so a video can belong to several playlists without another copy. The Library filter uses recorded order. **Complete enumeration beyond 50 entries is unreliable**, despite the configured 10,000-entry ceiling. Membership does not automatically synchronize with playlist edits.
+
+## Use the offline Library
+
+Switching tabs preserves unsaved Downloader input and leaves its worker running. Library browsing, search, previews, Favorites and playback need only the local server/files, without Internet or account sessions. Clicking an original source link goes online.
+
+- **Browse:** 48 tiles per page, newest downloaded first; filter by platform, known Instagram account, source, YouTube playlist, Favorites or hidden state. Use Refresh for newly indexed files.
+- **Search:** download date (`YYYY-MM-DD`), original link, shortcode/video ID or filename; also YouTube title/channel.
+- **Viewer:** ordered carousel slider, standard playback controls and known metadata. Left/right moves media; up/down moves posts unless native controls have focus. Back or Escape restores the grid position.
+- **Favorites / Hide:** local database changes only. Hide keeps files and history; enable Hidden items to restore them. Favorites do not change Instagram Saved.
+- **Delete local file:** a separate permanent-delete confirmation lists exact recorded media and sidecars. History remains; a later download is allowed once the file is missing.
+- **Fetch missing details:** Instagram only, one selected post, with online confirmation. Queues missing caption/account data without downloading media again. Never runs on browsing; YouTube has no equivalent.
+
+Old completed paths are indexed in repeatable batches without moving/downloading media. Records, matching filenames and sidecars/ZIP captions supply available metadata; other values stay unknown. New Instagram captions enter Library metadata even with caption-file output disabled.
+
+Missing/moved/corrupt files remain visible. Restore their recorded paths or download again; folder settings do not relocate old outputs. Preview failure leaves originals accessible. ZIPs are read directly without duplicate extracted folders.
+
+## Sessions and connection
+
+### Import account cookies
+
+Public access is attempted without cookies; Instagram may still require login. Import only sessions authorized to view the content. Platform imports/Clear actions are separate; passwords are never collected.
+
+1. Log in normally in Chrome and resolve any account challenge there.
+2. Export site cookies locally as Netscape `cookies.txt` or JSON using a trusted exporter. Instagram needs HTTP-only `sessionid`; `document.cookie` omits it. JSON needs `domain`, `name`, `value`, optional expiry. Netscape needs seven tab-separated fields and `#HttpOnly_` prefixes.
+3. Import into the matching session section in **Connection & settings**. **Verify Saved access** checks one Instagram Saved page; import alone proves nothing about session validity. For YouTube, test one queued video.
+4. Remove the plaintext export when finished; never share, commit or sync it. Clear session removes the app's copy, not Chrome's login. Revoke exposed sessions through the site's account controls.
+
+**Instagram without an exporter:** Chrome F12 → Application → Storage → Cookies → Instagram. Copy raw Value/Domain for `sessionid`, plus `csrftoken` and `ds_user_id` if present; leave Show URL-decoded off. Save entries like the following as `instagram-cookies.json` in Notepad using **All files**, then import:
+
+```json
+[{"domain":".instagram.com","name":"sessionid","value":"PASTE_RAW_VALUE_HERE"}]
+```
+
+Chrome cookies are not extracted automatically. For YouTube's cookie rotation and incognito export procedure, follow the [official engine guide](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies).
+
+### VPN and proxy
+
+Use your existing VPN/TUN, a detected static Windows/environment proxy, or an explicit `http://host:port`, `https://host:port`, `socks5://host:port` or `socks5h://host:port`. SOCKS5h delegates DNS to the proxy. Browser-only proxy extensions and PAC/WPAD scripts are unsupported. Windows bypass-list behavior is not reproduced by the explicit engine mapping. Local app requests bypass proxies.
+
+Pause and wait before connection/session changes. **Test connection** checks Instagram reachability, not login or every media host; **Verify Saved access** checks authentication. Explicit proxy credentials are encrypted; clearing returns to detected/direct access. TLS verification stays enabled.
+
+Temporary failures get at most three attempts with backoff; ordinary failures are recorded and processing continues. Account restrictions/challenges/rate limits pause work. Respect server waits, resolve issues in Chrome, then manually Resume. There is no evasion or guarantee against account restrictions.
+
+## Files and recovery
+
+| Platform | Output |
+| --- | --- |
+| Instagram | `username-shortcode-YYYY-MM-DD`; one image/video, or one ordered carousel ZIP (`001.jpg`, `002.mp4`, etc.). Optional caption/link text goes beside single media or inside ZIP as `caption.txt`. |
+| YouTube | `video_title_in_snake_case-channel_name-video_id-YYYY-MM-DD.mp4` or `.mp3`. Title/channel are lowercase snake_case, capped at 80/40 characters; ID case is preserved. Missing values use `untitled`/`unknown`. Optional sidecars share the base. |
+
+Dates use the computer's local download day, not publication/save dates. Instagram fixes its filename date when media staging begins. Windows names are sanitized; collisions get ` (2)`, ` (3)`, etc. Existing files are not bulk-renamed. Example: `most_epic_deaths_in_history-serious_history-Yctn_C_6cF8-2026-10-28.mp3`.
+
+Duplicates are skipped across input sources. Instagram identity is its shortcode; YouTube identity includes video ID, MP4/MP3 mode and full/segment range. Quality ceilings are not separate identities: an existing lower-resolution file may satisfy a higher ceiling. Missing media or recorded sidecars permits another download. **Download again** explicitly saves another copy; active queue duplicates still skip. Use it after restarting to correct an older dubbed YouTube download. Old files/history remain intact.
+
+**Back up with the server stopped:** copy `.local` and every media folder. `.local/queue.sqlite3` contains queue/history/Library/settings; `.local/credentials.bin` holds Windows-protected sessions/proxy. Media is plaintext. Session blobs may not transfer to another Windows user/computer; rerun Setup and reimport sessions when moving installations.
+
+Incomplete work is under `<download-folder>/.incomplete/<queue-id>/`, outside the Library. Retry reuses verified staged Instagram items and matching YouTube partials. Track changes invalidate YouTube staging; legacy audio-finalization jobs instruct you to cancel/requeue rather than commit an old dub. Successful jobs remove staging. With the server stopped, remove only unwanted canceled/failed staging subfolders if needed.
+
+Previews are cached under `.local/thumbnails`, limited to 128 MiB / 1,000 files, and invalidate when sources change. YouTube also caps individual streams around 3.3 GiB, monitors staging at 10 GiB, and refuses new jobs once retained incomplete work exceeds 20 GiB per download folder. An in-flight transfer/merge can temporarily exceed thresholds; these are safeguards, not a disk-space guarantee.
+
+## Design guide and logbook
+
+The browser calls a local Python server. Download jobs go through a persisted queue and one worker into a platform adapter; Library reads recorded files and SQLite directly, without extraction. These boundaries keep browsing offline and platform changes isolated.
+
+| Decision | Reason / tradeoff |
+| --- | --- |
+| Standard-library HTTP server, SQLite, vanilla HTML/CSS/JS | Small Windows setup, no hosted services or frontend framework/build. Node is only a YouTube runtime dependency. |
+| Separate maintained engines | gallery-dl provides Instagram posts/profiles/Saved/collection extraction; yt-dlp handles YouTube and Instagram DASH support. Adapter boundaries avoid maintaining private platform APIs ourselves. |
+| SQLite checkpoints and manual Resume | Unfinished work survives restarts without automatic account traffic. Bounded queries/enumeration keep thousands of records manageable. |
+| Sequential work, pacing, batches of 50 | Favor cautious account access and review over aggressive speed. Restricted endpoints are never repeatedly retried automatically. |
+| Temporary files and completion receipts | A partial carousel or failed conversion must not become a successful download. Collision checks preserve unrelated files. |
+| ZIP-only carousels and local previews | Preserve media order in one output without duplicate extraction folders; cache small previews rather than loading originals into the grid. |
+| Original audio before bitrate | The old selector chose Indonesian/French dubs with slightly higher bitrates. Resolve track identity first, then quality; record uncertainty rather than force English. |
+| Native HTTPS/DASH, no automatic video encoding | Keep metadata/media on the same proxy/TLS path and avoid hidden quality loss. HLS-only sources and exact-frame video cuts remain limitations. |
+| Cookie import, DPAPI, authenticated local routes | Avoid passwords and brittle Chrome decryption. Restrict local API/media access as well as LAN access. |
+
+**Security boundary:** loopback-only binding, Host/Origin checks and per-run authorization protect API/media routes. Media IDs replace client-supplied paths; ranges support seeking, while traversal/staging/symlinks/junctions are refused. DPAPI/restricted `.local` permissions protect credentials, not media/history. Raw diagnostics and secrets are not logged; no telemetry is sent. Malware, administrators, browser extensions and external sync tools remain outside these protections.
+
+**Project map:**
+
+| Files | Responsibility |
+| --- | --- |
+| [app.py](app.py), [Setup.ps1](Setup.ps1), [Launch.cmd](Launch.cmd) | Environment, single-instance launch, authorized browser opening, shutdown. |
+| [server.py](instagram_local/server.py), [static/](instagram_local/static) | Local API/media security and browser interface. |
+| [core.py](instagram_local/core.py), [routing.py](instagram_local/routing.py), [security.py](instagram_local/security.py) | Validation, names/imports, platform routing, cookie/proxy storage. |
+| [store.py](instagram_local/store.py), [worker.py](instagram_local/worker.py) | SQLite state, queue execution, retries, finalization. |
+| [engine.py](instagram_local/engine.py), [youtube.py](instagram_local/youtube.py) | Platform-specific extraction/download adapters. |
+| [library.py](instagram_local/library.py), [tests/](tests) | Offline indexing/streaming/previews; repeatable fixtures and regressions. |
+
+**Milestones:** Instagram engine research/design on 2026-10-25; offline Library verification on 2026-10-27; YouTube support, original-audio correction and title-first naming on 2026-10-28. Detailed evidence stays in [Instagram engine research](ENGINE_RESEARCH.md), [YouTube engine research](YOUTUBE_RESEARCH.md) and [verification history](VERIFICATION.md), rather than duplicating every test in this manual.
+
+## Status and roadmap
+
+Reviewed 2026-11-01. These are remaining work or source constraints, not promised release dates.
+
+| Priority / status | Requested capability and next step |
+| --- | --- |
+| **Required fix: large YouTube playlists** | Current extraction caps an iterator at 50 entries; the worker can mistake its exhaustion for playlist completion. A local 120-item fixture enumerated 50 and marked the source done. Advance to the next page/range before declaring completion; add integrated tests beyond 100 items, restart, ordering and duplicate membership. Until fixed, paste individual links for the full batch. |
+| **Required verification: authenticated sources** | Recorded checks do not establish current Instagram private/profile/Saved/collection access or account-only YouTube availability. Run a small account-authorized smoke test, including six varied Instagram links, Saved/collection pagination and a small YouTube playlist; fix source-specific failures. Public YouTube download and reported-video audio metadata were checked live; optional subtitle/artwork retrieval was not. |
+| **Source-blocked: recently-saved ordering** | Prefer true Recently saved / Latest N only when a maintained source reliably provides that order. Keep the explicit available-order fallback and never invent saved timestamps. |
+| **Partial experience: named Saved collections** | Contents are supported through a pasted collection URL. Add collection discovery/a selector only when the engine exposes a maintainable method. |
+| **Preferred convenience: browser-session reuse** | Investigate a supported Chrome-compatible local import method if Windows protections permit it. Explicit cookie import remains the working fallback; do not bypass browser security or collect passwords. |
+
+**Deliberately deferred or outside scope:** date-range filtering; Stories, Highlights and archived/live Instagram broadcasts; whole YouTube channels and active livestream recording; richer tags/custom collections; standalone executable packaging. These were mentioned as exclusions or optional future work, not shipped features. Completed YouTube livestream recordings may work as ordinary video URLs. Instagram lower-quality choices are offered only if usable source alternatives are actually supported; currently there is no quality selector. Frame-accurate MP4 segments and retimed segment subtitles are also unavailable.
+
+## Troubleshooting and maintenance
+
+| Symptom | Action |
+| --- | --- |
+| Setup/startup fails | Check Python/Node versions, PyPI connectivity, writable project folder and same Windows account. Rerun Setup; normal admin installation is not required. |
+| Unauthorized action / lost tab | Reopen with Launch.cmd. Do not force a second instance or delete its lock while running. |
+| Connection/session/challenge failure | Pause; verify the source in Chrome through VPN/proxy, resolve challenges, import fresh cookies and respect waits. Do not disable TLS. |
+| Download skipped / wrong older audio | Enable Download again; choose output options and requeue. |
+| Profile scan has no downloads yet | Latest N can require more timeline/Reels scanning; Resume when prompted. |
+| Missing Library file / failed preview | Restore its recorded path or download again. A preview/codec failure may still allow playback in a desktop player. |
+| Disk/ZIP/conversion failure | Check free space/permissions, then Retry failed. Review only unwanted staging folders with the server stopped. Never delete `.local` as a reset shortcut. |
+
+From the project folder, local regression checks are:
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
@@ -129,18 +181,6 @@ node --check instagram_local/static/library.js
 .\.venv\Scripts\python.exe -m pip check
 ```
 
-The suite covers input normalization/deduplication, CSV ambiguity, Windows filenames, mixed ZIP order/captions, partial reuse, collision handling, missing-file history, persistent recovery, incremental enumeration/cursors, pinned profile selection, retry limits/restriction pauses, redaction, DPAPI, HTTP access protections, and launcher behavior. Version 2 adds migration from version 1 tables, repeatable batches, missing metadata, future caption/source indexing, local details tasks, literal search, persistent Favorites/hidden state, safe deletion, corrupt/staging/traversal rejection, thumbnail invalidation/bounds, media authorization, loose/ZIP video ranges, and 5,000-record bounded pagination. Tests generate tiny video/audio fixtures and run the real yt-dlp/FFmpeg DASH selection/merge pipeline with in-memory HTTP responses. Windows DPAPI/launcher tests need normal Windows user access and can fail in a restricted agent sandbox.
+Last recorded full run: **77 passing tests, 2026-10-28**, including Windows DPAPI/launcher and real local FFmpeg pipelines. Windows checks need normal user access and can fail in a restricted sandbox. That suite missed the large-playlist boundary bug identified in the 2026-11-01 documentation audit; passing fixtures do not prove live account availability. No large live/account stress test is part of routine verification.
 
-**Live Instagram remains unverified in this checkout:** no session or sample links were supplied. After importing a session, use this small smoke test:
-
-1. Test connection, then Verify Saved access (one Saved page).
-2. Queue six user-selected links covering an image, Reel, ordinary video, image carousel, and mixed carousel. Resume once. Inspect the outputs, audio, ZIP order, and optional captions.
-3. Queue the same links again; verify skipping. Remove one output and queue its link; verify automatic re-download.
-4. Queue a profile Latest 2, Saved Latest 2 after accepting available order, and a named collection Latest 2. Check they match the currently accessible source items/order. Use a followed private-profile link too if that access needs validation.
-5. Pause after a post, shut down, relaunch, confirm no automatic requests, then manually Resume.
-
-Do not use a large library or repeated restricted requests as a test. Fixture passing establishes application behavior, not that Instagram's private endpoints currently work for your account/region/session. See [ENGINE_RESEARCH.md](ENGINE_RESEARCH.md) for the dependency decision and verified source capabilities.
-
-Stack: Python stdlib HTTP/SQLite + vanilla HTML/CSS/JS; gallery-dl adapter; Requests/PySocks; yt-dlp; imageio-ffmpeg's bundled FFmpeg. All Python dependencies, including transitive ones, are pinned. No Node build step is needed. Engine-specific internals are confined to `instagram_local/engine.py`. Updating the engine requires changing its pin, reviewing parser/cursor behavior, running tests, and repeating the small authenticated smoke test. Do not assume a dependency update is compatible just because it installs.
-
-Third-party packages retain their own licenses (gallery-dl GPL-2.0-only; yt-dlp Unlicense; Requests Apache-2.0; FFmpeg's bundled build has its own license terms). This is a personal source checkout, not a standalone redistributed executable.
+[requirements.txt](requirements.txt) pins the installed dependency set, not a promise of the latest releases. Engine upgrades require reviewing adapter behavior, rerunning regressions and a small relevant live check. Third-party packages keep their own licenses; this is a personal source checkout, not a redistributed executable.
